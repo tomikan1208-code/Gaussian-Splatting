@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#131a1f">
+  <title>Wi-Fi 撮影</title>
+  <link rel="stylesheet" href="/capture.css">
+  <script src="/capture.js" defer></script>
+</head>
+<body>
+  <main class="shell">
+    <header class="site-head">
+      <div class="brand"><span class="frame-mark" aria-hidden="true"></span><h1>Wi-Fi 撮影</h1></div>
+      <span class="connection" id="connection" data-online="false">接続を確認中</span>
+    </header>
+
+    <section class="panel pair-panel" id="pair-panel" hidden>
+      <h2>PCと接続</h2>
+      <p>PCの画面に表示されている接続コードを入力してください。</p>
+      <form id="pair-form" class="inline-form">
+        <label class="sr-only" for="pair-code">接続コード</label>
+        <input id="pair-code" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" required>
+        <button class="primary" type="submit">接続</button>
+      </form>
+      <p class="notice" id="pair-note" aria-live="polite"></p>
+    </section>
+
+    <section class="panel desktop-panel" id="desktop-panel" hidden>
+      <div class="share-layout" id="share-layout">
+        <img id="qr" width="140" height="140" alt="スマホで読み取る接続用QRコード">
+        <div class="share-controls">
+          <h2>スマホで開く</h2>
+          <p>同じWi-Fiに接続し、スマホのカメラでQRコードを読み取ります。</p>
+          <div class="share-row">
+            <label for="address" class="sr-only">PCのIPアドレス</label>
+            <select id="address"></select>
+            <button type="button" id="copy-link" class="secondary">リンクをコピー</button>
+          </div>
+          <details class="share-details">
+            <summary>手入力で接続</summary>
+            <div>URL <a id="share-link"></a></div>
+            <div>接続コード <code id="share-code"></code></div>
+          </details>
+        </div>
+      </div>
+      <p id="no-network" hidden>PCをWi-Fiルーターにつないだ状態でサーバーを起動してください。</p>
+    </section>
+
+    <div id="workspace" hidden>
+      <nav class="modes" aria-label="送信方法">
+        <button type="button" data-mode="capture" aria-pressed="true">カメラ撮影</button>
+        <button type="button" data-mode="upload" aria-pressed="false">ファイル送信</button>
+      </nav>
+
+      <section id="capture-panel" aria-label="カメラ撮影">
+        <div class="panel tls-panel" id="tls-panel" hidden>
+          <div id="tls-ready" hidden>
+            <a id="secure-link" class="primary secure-button">撮影ページを開く</a>
+            <details class="tls-guide">
+              <summary>iPhoneの初回設定</summary>
+              <ol>
+                <li><a href="/profile.mobileconfig">撮影用プロファイルをダウンロード</a></li>
+                <li>「設定」→「ダウンロード済みのプロファイル」からインストールします。</li>
+                <li>「一般」→「情報」→「証明書信頼設定」で <strong>House Wi-Fi Capture</strong> を有効にします。</li>
+              </ol>
+            </details>
+          </div>
+          <p id="tls-unavailable" hidden>撮影ページに接続できません。PCで撮影サーバーを起動し直してください。</p>
+        </div>
+        <div class="panel camera-entry" id="camera-entry" hidden>
+          <button type="button" class="primary" id="open-camera">カメラを開く</button>
+          <details class="name-field">
+            <summary>撮影名</summary>
+            <label class="sr-only" for="capture-label">撮影名</label>
+            <input id="capture-label" type="text" placeholder="例　洋室" maxlength="40">
+          </details>
+        </div>
+      </section>
+
+      <section class="panel upload-panel" id="upload-panel" hidden>
+        <h2>写真・動画をPCに送信</h2>
+        <p>選んだファイルを受け取った形式のまま保存します。</p>
+        <p id="upload-camera-hint" hidden><a id="secure-upload-link">撮影しながら送る場合は撮影ページを開く</a></p>
+        <label class="file-picker" for="files">
+          <span class="file-icon" aria-hidden="true">↑</span>
+          <strong>ファイルを選ぶ</strong>
+          <span id="selection">PNG・JPEG・HEIC・HEIF・MOV・MP4</span>
+        </label>
+        <input class="sr-only" id="files" type="file" accept=".png,.jpg,.jpeg,.heic,.heif,.mov,.mp4,image/png,image/jpeg,image/heic,image/heif,video/quicktime,video/mp4" multiple>
+        <ul class="file-list" id="file-list" hidden></ul>
+        <label class="field upload-label">フォルダ名 <span>任意</span>
+          <input id="upload-label" type="text" placeholder="例　洋室の写真" maxlength="40">
+        </label>
+        <button type="button" class="primary" id="send" disabled>PCに送信</button>
+      </section>
+
+      <section class="panel activity" aria-label="保存状況">
+        <progress id="transfer" max="100" value="0" aria-label="ファイル送信の進捗" hidden></progress>
+        <div class="activity-copy">
+          <p id="message" aria-live="polite" hidden></p>
+          <div class="path"><span>PCの保存先</span><output id="destination"></output></div>
+        </div>
+        <div class="queue-actions" id="queue-actions" hidden>
+          <button type="button" class="primary" id="retry">再送</button>
+          <button type="button" class="secondary" id="discard">未送信を取り消す</button>
+        </div>
+      </section>
+    </div>
+
+    <footer class="site-foot"><span>ローカルWi-Fiで転送</span><button type="button" id="stop" class="text-button" hidden>サーバーを停止</button></footer>
+  </main>
+
+  <section id="camera-view" class="camera-view" aria-label="撮影画面" hidden>
+    <div class="finder-area">
+      <div class="finder">
+        <video id="camera" autoplay playsinline muted aria-label="カメラ映像"></video>
+        <div class="shutter-flash" id="shutter-flash" aria-hidden="true"></div>
+        <p class="preview-note" id="preview-note" role="status" hidden></p>
+      </div>
+    </div>
+    <div class="camera-controls">
+      <p id="camera-error" class="camera-error" role="alert" hidden></p>
+      <p id="camera-progress" class="camera-progress" hidden></p>
+      <div class="shutters">
+        <button type="button" id="capture-action" class="record-shutter" disabled>
+          <span class="record-mark" aria-hidden="true"></span>
+          <span id="capture-action-label">撮影開始</span>
+        </button>
+        <button type="button" id="still-action" class="photo-shutter" disabled>写真を撮る</button>
+      </div>
+      <button type="button" id="settings-toggle" class="settings-toggle" aria-haspopup="dialog"
+              aria-controls="camera-settings" aria-label="画質とfpsを変更">
+        <span>画質 <strong id="quality-value">1,920 px</strong></span>
+        <span id="fps-value">5 fps</span>
+      </button>
+    </div>
+  </section>
+
+  <dialog id="camera-settings" class="camera-settings" aria-labelledby="camera-settings-title">
+    <div class="settings-head">
+      <h2 id="camera-settings-title">撮影設定</h2>
+      <button type="button" id="done-settings" class="secondary">完了</button>
+    </div>
+    <div class="field-grid">
+      <label>画質（長辺）
+        <select id="edge">
+          <option value="1280">1,280 px</option>
+          <option value="1920" selected>1,920 px</option>
+          <option value="2560">2,560 px</option>
+          <option value="3840">3,840 px</option>
+          <option value="0">カメラの原寸</option>
+        </select>
+      </label>
+      <label>連続撮影
+        <select id="fps">
+          <option value="0.5">0.5 fps</option>
+          <option value="1">1 fps</option>
+          <option value="2.5">2.5 fps</option>
+          <option value="5" selected>5 fps</option>
+          <option value="10">10 fps</option>
+          <option value="15">15 fps</option>
+          <option value="30">30 fps</option>
+        </select>
+      </label>
+    </div>
+    <p class="settings-detail" id="output-size" hidden></p>
+    <button class="secondary sensor-button" id="motion" type="button">方角・傾きの記録を許可</button>
+    <p class="settings-detail" id="motion-status" role="status" hidden></p>
+    <p class="settings-detail" id="camera-stats" hidden></p>
+    <button type="button" class="text-button" id="close-camera">カメラを閉じる</button>
+  </dialog>
+</body>
+</html>

@@ -1,0 +1,33 @@
+# 生成データ・元データ（このリポジトリには含めない）
+/input/
+/runs/
+/regions/
+/capture-review/
+/wifi-captures/
+/downloads/
+/target/
+/.verify-*/
+
+# ダウンロードしたアプリ本体・ビルド成果物
+/apps/blender-5.3.0/
+/apps/brush-0.3.0/
+/apps/colmap-4.2.1-cuda/
+/apps/ffmpeg/
+/apps/heif-python-packages/
+/apps/pycolmap-4.2.1-python313/
+/apps/faster-gs/.venv/
+/apps/faster-gs/cuda/
+/apps/faster-gs/fused-ssim/
+/apps/faster-gs/nerficg/
+/apps/faster-gs/uv-cache/
+/apps/brush-0.3.0-training/brush_app.exe
+
+# キャッシュ
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# 現在のコマンドから参照していない旧版・生成物
+/view_feature_matches.py
+/feature_matches.html
+/feature_match_graph.js
