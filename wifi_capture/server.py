@@ -18,10 +18,8 @@ from threading import Event, Lock, Thread
 from urllib.parse import parse_qs, unquote, urlsplit
 import webbrowser
 
-from tls_setup import prepare_tls
-
-
 HERE = Path(__file__).resolve().parent
+PROJECT = HERE.parent
 SERVICE = "house-wifi-capture"
 PUBLIC = {
     "/": ("index.html", "text/html; charset=utf-8"),
@@ -98,6 +96,7 @@ class Session:
     kind: str
     lock: Lock = field(default_factory=Lock)
     files: dict = field(default_factory=dict)
+    training: "TrainingJob | None" = None
 
     def save(self, staged, index, name, size, readings):
         with self.lock:
@@ -106,6 +105,8 @@ class Session:
                 if (name, size) != (old_name, old_size):
                     raise RequestError(409, "別のファイル番号で送り直してください。")
                 return saved
+            if self.training is not None:
+                raise RequestError(409, "このフォルダは学習に使用済みです。新しい送信を開始してください。")
             destination = available_name(self.folder, name)
             if readings is None:
                 staged.replace(destination)
@@ -127,6 +128,20 @@ class Session:
             return destination.name
 
 
+@dataclass(frozen=True)
+class TrainingJob:
+    session_id: str
+    log: Path
+    process: subprocess.Popen
+
+    def state(self):
+        code = self.process.poll()
+        return {
+            "session": self.session_id, "folder": self.log.parent.name, "log": str(self.log),
+            "state": "running" if code is None else "completed" if code == 0 else "failed",
+        }
+
+
 class CaptureApp:
     def __init__(self, output, interfaces, port):
         self.output = output
@@ -137,6 +152,8 @@ class CaptureApp:
         self.code = secrets.token_urlsafe(9)
         self.sessions = {}
         self.shutdown = Event()
+        self.training = None
+        self.training_lock = Lock()
 
     def accepts(self, address):
         peer = IPv4Address(address)
@@ -152,6 +169,7 @@ class CaptureApp:
         }
         if paired:
             response["output"] = str(self.output)
+            response["training"] = self.training_state()
         if local:
             response["code"] = self.code
             response["links"] = [
@@ -186,6 +204,44 @@ class CaptureApp:
         }))
         self.sessions[identifier] = Session(folder, kind)
         return {"id": identifier, "folder": str(folder)}
+
+    def training_state(self):
+        job = self.training
+        return job.state() if job else None
+
+    def start_training(self, data):
+        identifier, saved = data.get("id"), data.get("saved")
+        session = self.sessions.get(identifier) if isinstance(identifier, str) else None
+        if session is None:
+            raise RequestError(404, "送信したフォルダを確認できません。PCの Train-Room.cmd から学習できます。")
+        with self.training_lock, session.lock:
+            if type(saved) is not int or saved < 1 or saved != len(session.files):
+                raise RequestError(409, "すべてのファイルの保存が完了してから学習を開始してください。")
+            if saved < 3 and not any(Path(row[2]).suffix.lower() in {".mov", ".mp4"}
+                                     for row in session.files.values()):
+                raise RequestError(400, "同じ場所を撮った写真を3枚以上まとめて送るか、動画を送ってください。")
+            if session.training is not None:
+                previous = session.training.state()
+                if previous["state"] != "failed":
+                    return previous
+            if self.shutdown.is_set() or (self.training and self.training.process.poll() is None):
+                raise RequestError(409, "PCで学習中です。完了してから開始してください。")
+
+            log = session.folder / f"training-{datetime.now():%Y%m%d-%H%M%S}-{secrets.token_hex(3)}.log"
+            try:
+                with log.open("xb") as output:
+                    process = subprocess.Popen(
+                        ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+                         "-File", str(PROJECT / "Train-Room.ps1"), "-InputFolder", str(session.folder),
+                         "-MaxEdge", "1920", "-AverageSteps", "20"],
+                        cwd=PROJECT, stdin=subprocess.DEVNULL, stdout=output, stderr=subprocess.STDOUT,
+                        env={**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUNBUFFERED": "1"},
+                    )
+            except OSError as error:
+                print(f"Could not start training: {error}", file=sys.stderr, flush=True)
+                raise RequestError(500, "PCで学習を起動できませんでした。Train-Room.cmd を確認してください。") from None
+            session.training = self.training = TrainingJob(identifier, log, process)
+            return self.training.state()
 
 
 def qr_png(value):
@@ -307,6 +363,8 @@ class Receiver(BaseHTTPRequestHandler):
             self.send_bytes(200, (HERE / name).read_bytes(), content_type)
         elif path.path == "/api/state":
             self.send_json(self.app.state(self.local, self.local or self.paired))
+        elif path.path == "/api/training" and (self.local or self.paired):
+            self.send_json({"job": self.app.training_state()})
         elif path.path == "/profile.mobileconfig" and self.app.profile:
             self.send_bytes(200, self.app.profile, "application/x-apple-aspen-config",
                             Content_Disposition='attachment; filename="House-WiFi-Capture.mobileconfig"')
@@ -327,9 +385,16 @@ class Receiver(BaseHTTPRequestHandler):
             self.send_json(self.app.create_session(self.read_json()), 201)
         elif path == "/api/file":
             self.receive_file()
+        elif path == "/api/training":
+            self.send_json({"job": self.app.start_training(self.read_json())})
         elif path == "/api/stop" and self.local:
-            self.send_json({"stopped": True})
-            self.app.shutdown.set()
+            self.read_json()
+            with self.app.training_lock:
+                job = self.app.training_state()
+                if job and job["state"] == "running":
+                    raise RequestError(409, "学習が完了してからサーバーを停止してください。")
+                self.send_json({"stopped": True})
+                self.app.shutdown.set()
         else:
             raise RequestError(404, "このページは見つかりませんでした。")
 
@@ -389,33 +454,34 @@ class Server(ThreadingHTTPServer):
 
 def main():
     parser = argparse.ArgumentParser(description="Receive phone photos and video over the local network.")
-    parser.add_argument("--output", type=Path, default=HERE.parent / "wifi-captures")
+    parser.add_argument("--output", type=Path, default=PROJECT / "input")
     parser.add_argument("--state", type=Path,
                         default=Path(os.environ.get("LOCALAPPDATA", Path.home())) / "HouseWiFiCapture")
     parser.add_argument("--lan", action="append", type=IPv4Interface, default=[])
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--tls-port", type=int, default=8766)
-    parser.add_argument("--openssl", type=Path)
     parser.add_argument("--open", action="store_true")
     args = parser.parse_args()
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
-    app = CaptureApp(output, args.lan, args.port)
     host = "0.0.0.0" if args.lan else "127.0.0.1"
     with ExitStack() as resources:
         http = resources.enter_context(Server((host, args.port), Receiver))
+        app = CaptureApp(output, args.lan, http.server_port)
         servers = [http]
-        if args.openssl:
-            try:
-                https = resources.enter_context(Server((host, args.tls_port), Receiver))
-                addresses = ["127.0.0.1", *(str(interface.ip) for interface in args.lan)]
-                context, app.profile = prepare_tls(args.openssl, args.state.resolve(), addresses)
-                https.socket = context.wrap_socket(https.socket, server_side=True,
-                                                   do_handshake_on_connect=False)
-                app.tls_port = https.server_port
-                servers.append(https)
-            except (OSError, subprocess.CalledProcessError) as error:
-                print(f"HTTPS setup failed: {error}", file=sys.stderr, flush=True)
+        sys.path.insert(0, str(PROJECT / "apps/wifi-python-packages"))
+        try:
+            from tls_setup import prepare_tls
+
+            addresses = ["127.0.0.1", *(str(interface.ip) for interface in args.lan)]
+            context, profile = prepare_tls(args.state.resolve(), addresses)
+            https = resources.enter_context(Server((host, args.tls_port), Receiver))
+            https.socket = context.wrap_socket(https.socket, server_side=True, do_handshake_on_connect=False)
+            app.tls_port = https.server_port
+            app.profile = profile
+            servers.append(https)
+        except (ImportError, OSError, ValueError) as error:
+            print(f"HTTPS setup failed: {error}", file=sys.stderr, flush=True)
         for server in servers:
             server.app = app
             Thread(target=server.serve_forever, daemon=True).start()

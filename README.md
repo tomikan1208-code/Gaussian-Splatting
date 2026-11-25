@@ -2,6 +2,18 @@
 
 作業先は D:\vibe\house-gaussian-splat。RTX 3050（VRAM 8 GB）で動画のフレーム抽出、カメラ位置の推定、スプラット生成、Blenderでの描画まで確認済みです。
 
+## GitHubからダウンロードして使う
+
+Windows x64 の PC と、CUDA 対応の NVIDIA GPU・ドライバーが必要です。
+
+1. GitHub の [Download ZIP](https://github.com/tomikan1208-code/Gaussian-Splatting/archive/refs/heads/main.zip) で取得して展開し、[Start-WiFi-Capture.cmd](Start-WiFi-Capture.cmd) を開きます。初回は Blender、COLMAP、Brush、FFmpeg と Python パッケージを取得するため、インターネット接続が必要です。ダウンロードは約1.1 GBです。
+2. PCとスマホを同じルーターにつなぎます。PCのブラウザーに表示されたQRコードをスマホで読み取り、「ファイルを選ぶ」から同じ場所を撮った写真や動画をまとめて選び、「PCに送信」を押します。
+3. 保存が完了すると `input` の下に送信ごとのフォルダができ、「このフォルダで学習開始」を押せます。学習はPCで実行されます。結果の `room.ply` は `runs` の実行フォルダに保存され、[Open-Blender-Splats.cmd](Open-Blender-Splats.cmd) で直近の結果を開けます。
+
+初回セットアップでは SIFT で画像を照合し、公式の Brush 0.3.0 で学習します。LoMa-B128 の重みが揃っている環境では、LoMa-B128 で照合します。
+
+Windows ファイアウォールの確認が出たら、自宅などのプライベートネットワークで Python の通信を許可します。スマホでページを開けない場合は、PC側のネットワークプロファイルと、スマホが同じルーターにつながっていることを確認してください。[Wi-Fi撮影の手順](wifi_capture/README.md)
+
 ## 撮り足し版を見る
 
 [Open-Reshot-Room.cmd](Open-Reshot-Room.cmd) で追加4本から作った試作を開きます。266フレームのうち216枚が一つにつながり、219,350個のスプラットになりました。ベッド、机、入口を同じモデルに収録しています。入口の扉と周囲の白壁はまだぼやけています。[ベッド側](runs/20261117-112100-205-12856/preview-01.png) · [机側](runs/20261117-112100-205-12856/preview-02.png) · [入口側](runs/20261117-112100-205-12856/preview-03.png) · [使用した動画と登録数](runs/20261117-112100-205-12856/capture-sources.json)
@@ -22,11 +34,11 @@ IMG_9785.MOV（約15秒）と IMG_9786.MOV（約140秒）から198フレーム�
 
 ## 新しい素材で生成する
 
-1. 同じ部屋の MOV、MP4、HEIC、HEIF、JPEG、PNG を D:\vibe\house-gaussian-splat\input に入れます。
-2. [Train-Room.cmd](Train-Room.cmd) を開き、学習画像の解像度（長辺px）、動画の抽出fps、画像1枚あたりの平均ステップ数、ガウシアンの上限点数、学習方式の順に入力します。空欄でEnterを押すと原寸、5 fps、平均20ステップ、400万点、高速版Brushになります。学習方式の `2` でFaster-GS、`3` で高速版Faster-GSを選べます。FPSは `2.5` のような小数も指定できます。上限には `400万` や `4000000` と入力できます。登録1,393枚で平均20なら合計27,860ステップです。
+1. 同じ部屋の MOV、MP4、HEIC、HEIF、JPEG、PNG を展開したフォルダの `input` に入れます。`input` がない場合は作成します。
+2. [Train-Room.cmd](Train-Room.cmd) を開き、学習画像の解像度（長辺px）、動画の抽出fps、画像1枚あたりの平均ステップ数、ガウシアンの上限点数、学習方式の順に入力します。空欄でEnterを押すと原寸、5 fps、平均20ステップ、400万点、Brushになります。学習方式の `2` でFaster-GS、`3` で高速版Faster-GSを選べます。FPSは `2.5` のような小数も指定できます。上限には `400万` や `4000000` と入力できます。登録1,393枚で平均20なら合計27,860ステップです。
 3. [Open-Blender-Splats.cmd](Open-Blender-Splats.cmd) で、直近に生成が完了したPLYを読み込んだBlender 5.3を開きます。テンキー0でカメラ表示を切り替えます。
 
-Wi-Fi撮影の保存フォルダを [Train-Room.cmd](Train-Room.cmd) にドラッグすると直接使えます。同じ部屋の撮影フォルダを複数使うときは、フォルダごと `input` の直下にコピーして通常どおり起動します。PNGと `frames.jsonl` は同じフォルダに置き、画像の名前を保ちます。ログの撮影順や向きは、カメラ推定前の画像照合の候補選びに使います。[Wi-Fi撮影の手順](wifi_capture/README.md#学習に使う)
+Wi-Fiで受信したフォルダは `input` に入ります。複数回の送信を一緒に学習する場合は、同じ部屋の素材を `input` にそろえて [Train-Room.cmd](Train-Room.cmd) を開きます。1回分だけ使う場合は、受信フォルダをCMDにドラッグすることもできます。PNGと `frames.jsonl` は同じフォルダに置き、画像の名前を保ちます。ログの撮影順や向きは、カメラ推定前の画像照合の候補選びに使います。[Wi-Fi撮影の手順](wifi_capture/README.md#学習に使う)
 
 解像度は長辺の上限です。4K（UHD、3840×2160 px）は `3840`、フルHD（1920×1080 px）は `1920`、元の解像度は `0` を入力します。ガウシアンの実数は学習に応じて増え、指定した上限まで達しない場合があります。カメラ位置を求めるときは長辺1,280 pxを使います。HEICとJPEGはデコードした画素を可逆圧縮のPNGにします。原寸用の動画フレームはカメラ位置が登録されたコマを元動画から再抽出し、その画素サイズに焦点距離と画像座標を換算してからレンズ補正します。
 
@@ -52,7 +64,7 @@ run.log に処理経過と完了までの概算、result.json に使用したカ
 
 ### ガウシアン学習の高速化
 
-`Train-Room.cmd` の既定の学習方式はBrush 0.3.0を基にした高速版です。SSIMと勾配をGPUの専用カーネルで計算し、位置・回転・色などを並行して読み出してPLYに直接書きます。Faster-GSは同じカメラ推定と画像を再利用でき、PowerShellからは `-Trainer faster-gs` または `-Trainer faster-gs-optimized` で選択できます。 [Faster-GSのセットアップ](apps/faster-gs/README.md)
+初回セットアップで取得する学習方式は公式のBrush 0.3.0です。プロジェクト内に高速版を用意すると、既定のBrush学習でそちらを使います。高速版はSSIMと勾配をGPUの専用カーネルで計算し、位置・回転・色などを並行して読み出してPLYに直接書きます。Faster-GSは同じカメラ推定と画像を再利用でき、PowerShellからは `-Trainer faster-gs` または `-Trainer faster-gs-optimized` で選択できます。 [Faster-GSのセットアップ](apps/faster-gs/README.md)
 
 2026-11-19の入力では、長辺1,280 px・6,000ステップ・上限150万点で、高速版Brushは3分54秒、高速版Faster-GSは2分30秒でした。未学習24視点の平均PSNRはそれぞれ21.36 dBと17.65 dBでした。 [Faster-GSとの比較](capture-review/faster-gs-v001/README.md)
 
@@ -75,7 +87,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File 'D:\vibe\house-gaussian-
 
 - FFmpeg 9.0.2 で動画からPNGを抜き、表示回転を適用します。HEIC写真は同梱のpillow-heifで原画素を読みます。[Windows版配布元](https://www.gyan.dev/ffmpeg/builds/)
 - COLMAP 4.2.1（CUDA版）でカメラ位置・向きと疎な点群を求めます。[COLMAPの配布元](https://github.com/colmap/colmap/releases/tag/4.2.1)
-- 高速版BrushまたはFaster-GSでGPU学習し、ガウススプラットをPLYに書き出します。 [Brushの高速化差分](apps/brush-0.3.0-training/README.md) · [Faster-GS](apps/faster-gs/README.md)
+- BrushまたはFaster-GSでGPU学習し、ガウススプラットをPLYに書き出します。 [Brushの高速化差分](apps/brush-0.3.0-training/README.md) · [Faster-GS](apps/faster-gs/README.md)
 - ポータブル版 Blender 5.3.0 でPLYを開き、表示とレンダリングを行います。既存の家は Blender 5.2.1 の実行ファイルを通常起動と壁の検査から参照しているため、そちらも引き続き使います。[Blender 5.3.0の配布元](https://download.blender.org/release/Blender5.3/)
 
 検証では元の2本に加え、短く切り出した動画とJPEGを混ぜた入力で、フレーム抽出からPLY書き出しまで通しました。処理はこのPC内で実行しています。

@@ -16,6 +16,11 @@ const cameraReady = Boolean(window.isSecureContext && navigator.mediaDevices?.ge
 const captureTransfer = { kind: "capture", queue: [] };
 const uploadTransfer = { kind: "upload", queue: [], currentBytes: 0 };
 const transfers = { capture: captureTransfer, upload: uploadTransfer };
+const trainingStatuses = {
+  running: "PCで学習中",
+  completed: "学習完了。結果はPCの runs にあります。",
+  failed: "学習に失敗しました。PCでログを確認してください。",
+};
 
 let code = location.hash.slice(1) || sessionStorage.getItem("pairCode") || "";
 if (location.hash) history.replaceState(null, "", location.pathname + location.search);
@@ -24,7 +29,7 @@ let stream;
 let cameraState = "closed";
 let cameraAttempt = 0;
 let previewTimeout;
-let mode = new URLSearchParams(location.search).get("mode") === "upload" ? "upload" : "capture";
+let mode = new URLSearchParams(location.search).get("mode") === "capture" ? "capture" : "upload";
 let frameEncoding = false;
 let photoEncoding = false;
 let captureBatch;
@@ -32,6 +37,10 @@ let uploadBatch;
 let motionEnabled = false;
 let orientation;
 let wakeLock;
+let training;
+let startingTraining = false;
+let checkingTraining = false;
+let trainingError = "";
 
 function message(text, error = false, kind = mode) {
   transfers[kind].notice = text;
@@ -80,6 +89,7 @@ function shareLink() {
 
 function applyServer(state) {
   server = state;
+  training = state.training;
   if (state.local) code = state.code;
   if (state.paired) sessionStorage.setItem("pairCode", code);
   else sessionStorage.removeItem("pairCode");
@@ -107,12 +117,13 @@ function applyServer(state) {
     secure.protocol = "https:";
     secure.port = state.tlsPort;
     secure.hash = code;
-    secure.searchParams.delete("mode");
+    secure.searchParams.set("mode", "capture");
     byId("secure-link").href = secure.href;
     secure.searchParams.set("mode", "upload");
     byId("secure-upload-link").href = secure.href;
   }
   renderProgress();
+  renderTraining();
 }
 
 async function initialize() {
@@ -151,6 +162,75 @@ byId("copy-link").addEventListener("click", async () => {
     byId("share-link").closest("details").open = true;
   }
 });
+
+function renderTraining() {
+  const batch = mode === "capture" ? captureBatch : uploadBatch;
+  const transfer = transfers[mode];
+  const ready = Boolean(batch?.id && batch.saved && !batch.recording && !batch.cancelled
+    && !transfer.sending && !transfer.queue.length);
+  const canTrain = ready && (batch.saved >= 3 || batch.hasVideo);
+  const running = training?.state === "running";
+  if (training?.session && captureBatch?.id === training.session) captureBatch.sealed = true;
+  if (training?.state === "completed") {
+    for (const item of [captureBatch, uploadBatch]) {
+      if (item?.id === training.session) item.trained = true;
+    }
+  }
+
+  const button = byId("train");
+  button.hidden = !canTrain || Boolean(batch?.trained);
+  button.disabled = running || startingTraining;
+  button.textContent = training?.state === "failed" && training.session === batch?.id
+    ? "このフォルダで学習を再試行" : "このフォルダで学習開始";
+  const job = running || !ready || training?.session === batch?.id ? training : undefined;
+  byId("training-control").hidden = !ready && !job && !startingTraining && !trainingError;
+  byId("stop").disabled = running || startingTraining;
+
+  const text = startingTraining ? "PCで学習を起動しています。" : trainingError
+    || (job ? trainingStatuses[job.state] : "")
+    || (ready && !canTrain ? "学習には同じ場所を撮った写真を3枚以上まとめて送るか、動画を送ってください。" : "");
+  const status = byId("training-status");
+  if (status.textContent !== text) status.textContent = text;
+  const detail = byId("training-log");
+  detail.hidden = !job;
+  const path = job?.state === "failed" ? job.log : job?.folder ?? "";
+  if (detail.textContent !== path) detail.textContent = path;
+}
+
+async function refreshTraining() {
+  if (!server?.paired || startingTraining || checkingTraining || document.hidden) return;
+  checkingTraining = true;
+  try {
+    const { job } = await api("/api/training");
+    if (!startingTraining) {
+      if (job && job.log !== training?.log && (job.session === captureBatch?.id || job.session === uploadBatch?.id)) {
+        trainingError = "";
+      }
+      training = job;
+      renderTraining();
+    }
+  } catch {
+    // Keep the last status while the phone is reconnecting.
+  } finally {
+    checkingTraining = false;
+  }
+}
+
+byId("train").addEventListener("click", async () => {
+  const batch = mode === "capture" ? captureBatch : uploadBatch;
+  startingTraining = true;
+  trainingError = "";
+  renderTraining();
+  try {
+    ({ job: training } = await api("/api/training", { id: batch.id, saved: batch.saved }));
+  } catch (error) {
+    trainingError = error.message;
+  } finally {
+    startingTraining = false;
+    renderTraining();
+  }
+});
+setInterval(refreshTraining, 3000);
 
 function hasCameraFrame() {
   return stream && !camera.paused && camera.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA
@@ -193,10 +273,12 @@ function controls() {
   shutter.dataset.kind = frameReady && !captureTransfer.failed ? "record" : "";
   shutter.dataset.recording = String(recording);
   byId("queue-actions").hidden = !transfers[mode].failed;
+  renderTraining();
 }
 
 function showMode(value) {
   mode = value;
+  trainingError = "";
   byId("capture-panel").hidden = value !== "capture";
   byId("upload-panel").hidden = value !== "upload";
   for (const button of modes) button.setAttribute("aria-pressed", String(button.dataset.mode === value));
@@ -655,7 +737,9 @@ byId("capture-action").addEventListener("click", () => {
 });
 
 function captureBatchFor(previewStream) {
-  if (captureBatch && captureBatch.previewStream === previewStream && !captureBatch.cancelled) return captureBatch;
+  if (captureBatch && captureBatch.previewStream === previewStream && !captureBatch.cancelled && !captureBatch.sealed) {
+    return captureBatch;
+  }
   return undefined;
 }
 
@@ -702,7 +786,9 @@ byId("send").addEventListener("click", () => {
   const files = [...byId("files").files];
   if (uploadTransfer.queue.length || !files.length) return;
   uploadBatch = { kind: "upload", label: byId("upload-label").value, saved: 0, sentBytes: 0,
+    hasVideo: files.some((file) => /\.(mov|mp4)$/i.test(file.name)),
     totalBytes: files.reduce((sum, file) => sum + file.size, 0) };
+  trainingError = "";
   uploadTransfer.queue = files.map((file, index) => ({ batch: uploadBatch, file, index: index + 1 }));
   message(files.length.toLocaleString() + "件をPCに送信しています。", false, "upload");
   drain(uploadTransfer);
@@ -729,11 +815,13 @@ byId("discard").addEventListener("click", () => {
 document.addEventListener("visibilitychange", () => {
   if (document.hidden && captureBatch?.recording) stopCapture(captureBatch);
   if (!document.hidden && stream && camera.paused) playPreview();
+  if (!document.hidden) refreshTraining();
 });
 window.addEventListener("pagehide", () => closeCamera());
 byId("stop").addEventListener("click", async () => {
   try {
     await api("/api/stop", {});
+    server = undefined;
     closeCamera();
     byId("connection").textContent = "サーバー停止済み";
     byId("connection").dataset.online = "false";

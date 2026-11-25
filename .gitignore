@@ -15,6 +15,7 @@
 /apps/ffmpeg/
 /apps/heif-python-packages/
 /apps/pycolmap-4.2.1-python313/
+/apps/wifi-python-packages/
 /apps/faster-gs/.venv/
 /apps/faster-gs/cuda/
 /apps/faster-gs/fused-ssim/

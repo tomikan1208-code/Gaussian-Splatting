@@ -49,11 +49,11 @@
 
     <div id="workspace" hidden>
       <nav class="modes" aria-label="送信方法">
-        <button type="button" data-mode="capture" aria-pressed="true">カメラ撮影</button>
-        <button type="button" data-mode="upload" aria-pressed="false">ファイル送信</button>
+        <button type="button" data-mode="upload" aria-pressed="true">ファイル送信</button>
+        <button type="button" data-mode="capture" aria-pressed="false">カメラ撮影</button>
       </nav>
 
-      <section id="capture-panel" aria-label="カメラ撮影">
+      <section id="capture-panel" aria-label="カメラ撮影" hidden>
         <div class="panel tls-panel" id="tls-panel" hidden>
           <div id="tls-ready" hidden>
             <a id="secure-link" class="primary secure-button">撮影ページを開く</a>
@@ -78,7 +78,7 @@
         </div>
       </section>
 
-      <section class="panel upload-panel" id="upload-panel" hidden>
+      <section class="panel upload-panel" id="upload-panel">
         <h2>写真・動画をPCに送信</h2>
         <p>選んだファイルを受け取った形式のまま保存します。</p>
         <p id="upload-camera-hint" hidden><a id="secure-upload-link">撮影しながら送る場合は撮影ページを開く</a></p>
@@ -104,6 +104,11 @@
         <div class="queue-actions" id="queue-actions" hidden>
           <button type="button" class="primary" id="retry">再送</button>
           <button type="button" class="secondary" id="discard">未送信を取り消す</button>
+        </div>
+        <div class="training-control" id="training-control" hidden>
+          <p id="training-status" role="status"></p>
+          <p class="training-log" id="training-log" hidden></p>
+          <button type="button" class="primary" id="train">このフォルダで学習開始</button>
         </div>
       </section>
     </div>

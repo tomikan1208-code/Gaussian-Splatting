@@ -167,6 +167,9 @@ progress { display: block; width: 100%; height: 9px; accent-color: var(--accent)
 .path { display: flex; flex-wrap: wrap; column-gap: 9px; row-gap: 4px; align-items: baseline; }
 .path output { font-size: .83rem; overflow-wrap: anywhere; }
 .queue-actions { margin-top: 10px; flex-wrap: wrap; }
+.training-control { display: grid; justify-items: start; gap: 8px; border-top: 1px solid var(--border); margin-top: 12px; padding-top: 12px; }
+#training-status:empty { display: none; }
+.training-log { font-size: .83rem; color: var(--muted); overflow-wrap: anywhere; }
 .site-foot { margin-top: 10px; padding-bottom: env(safe-area-inset-bottom); }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 @media (max-width: 690px) {

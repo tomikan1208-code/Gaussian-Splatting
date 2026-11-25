@@ -109,11 +109,19 @@ if ($SelectQuality) {
     Write-Host ('実行設定  {0}、平均{1}ステップ/枚、最大{2:N0}点、{3}fps、{4}' -f $edgeDescription, $AverageSteps.ToString($culture), $MaxSplats, $VideoFps.ToString($culture), $Trainer)
 }
 
+& (Join-Path $PSScriptRoot 'Setup-Windows.ps1')
 $python = Join-Path $PSScriptRoot 'apps/blender-5.3.0/blender-5.3.0-windows-x64/5.3/python/bin/python.exe'
 $trainScript = Join-Path $PSScriptRoot 'train_room.py'
 $rate = $VideoFps.ToString($culture)
 $options = @('--input-folder',$InputFolder,'--steps',"$Steps",'--max-splats',"$MaxSplats",
     '--max-edge',"$MaxEdge",'--video-fps',$rate,'--mapper',$Mapper,'--trainer',$Trainer,'--pairing',$Pairing)
+if (!$Matcher -and !$ReuseRun) {
+    $models = Join-Path $PSScriptRoot 'apps/colmap-4.2.1-cuda/models/loma-b128'
+    $weights = @('loma_detector.onnx', 'loma_descriptor_dedode_b.onnx', 'loma_matcher_B128.onnx')
+    if (@($weights | Where-Object { !(Test-Path -LiteralPath (Join-Path $models $_) -PathType Leaf) }).Count) {
+        $Matcher = 'sift'
+    }
+}
 if ($Matcher) { $options += @('--matcher',$Matcher) }
 if ($FramesPath) { $options += @('--frames-path',$FramesPath) }
 if ($ReuseRun) { $options += @('--reuse-run',$ReuseRun) }
